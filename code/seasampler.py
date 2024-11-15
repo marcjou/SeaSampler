@@ -29,6 +29,39 @@ class SeaSampler():
             self.temp_depth_data = df.sort_values(by='date')
             print('he')
 
+    def map_temperature(self, path, excel):
+        ds = xr.open_dataset(path)
+        sst = ds['temp_percentile99_mean']
+
+        df = pd.read_excel(excel)
+
+        projection = ccrs.PlateCarree()
+
+        # Crea el mapa
+        fig, ax = plt.subplots(subplot_kw={'projection': projection}, figsize=(10, 8))
+
+        ax.add_feature(cfeature.COASTLINE)
+        ax.add_feature(cfeature.BORDERS, linestyle=':')
+
+        lats = ds['latitude'].values
+        lons = ds['longitude'].values
+        data = sst.values[0]  # Selecciona el primer índice temporal si es necesario
+
+        # Grafica los datos
+        mesh = ax.pcolormesh(lons, lats, sst, transform=ccrs.PlateCarree(), cmap='coolwarm')
+        plt.colorbar(mesh, orientation='vertical', label='Temperature (°C)')
+        ax.scatter(
+            df['Longitude'],  # Longitudes
+            df['Latitude'],
+            color='k',
+            transform=ccrs.PlateCarree(),
+            s=10  # Tamaño de los puntos
+        )
+        plt.title('Mapa de Temperatura')
+        plt.show()
+
+        plt.savefig('../mapa.png')
+
     def open_netcdf(self, path, bad, bad2, bad3):
         # Limits of the catalan coast
         lat_min = 41.6600
@@ -214,7 +247,7 @@ class SeaSampler():
         plt.savefig('../src/output_images/radar_combo4_v1.png')
 
     def mega_dataframe(self, file_path, file_name, df, bad_list):
-        df = df.append(pd.read_csv(file_path))
+        df = pd.concat([df, pd.read_csv(file_path)])
         return df, 'bad'
 
     # TODO convertir date a timestamp o datetime y hacer caso a chatgpt
