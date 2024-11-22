@@ -231,61 +231,116 @@ class SeaSampler():
             # Agrupamos por 'key'
             grouped_data = {k: list(v) for k, v in groupby(self.data_list, key=itemgetter('zone'))}
 
-            # Agrupado bajo esta logica grouped_data['No Zone'][0]['data'] ahora plotear zona a zona excepto No Zone
+            # El siguiente bloque solo si quiero filtrar un mes
+            '''#TODO colocar en funcion a parte
+            start_date = pd.to_datetime("2024-09-15")
+            end_date = pd.to_datetime("2024-10-30")
+
+            filtered_grouped_data = {}
+            for zone, entries in grouped_data.items():
+                # Crear una lista filtrada para la zona actual
+                filtered_entries = []
+                for entry in entries:
+                    # Convertir la columna 'date' a datetime
+                    entry['data']['date'] = pd.to_datetime(entry['data']['date'])
+                    # Verificar si alguna fila pertenece al mes deseado
+                    if any((entry['data']['date'] >= start_date) & (entry['data']['date'] <= end_date)):
+                        filtered_entries.append(entry)
+                # Solo agregar al resultado si tiene datos válidos
+                if filtered_entries:
+                    filtered_grouped_data[zone] = filtered_entries'''
+            # We get the max depth
             for data in self.data_list:
-                if data['depth(m)'].max() > dip:
-                    dip = data['depth(m)'].max().round()
+                if data['data']['depth(m)'].max() > dip:
+                    dip = data['data']['depth(m)'].max().round()
             labels = range(1, int(dip) + 1, 1)
             ax, angles = self.prepare_radar_plot(labels)
-            i = 0
-            colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'cyan', 'magenta']
-            for data in self.data_list:
-                data['depth(m)'] = data['depth(m)'].round()
-                data_mean = data.groupby(by='depth(m)', as_index=False)['temperature(c)'].mean()
-                # First add nan if depth is lower than max
-                if data_mean.empty:
+            # Agrupado bajo esta logica grouped_data['No Zone'][0]['data'] ahora plotear zona a zona excepto No Zone
+            m = 0
+            # Sites escritos manualmente
+            sites = ['Ceuta', 'Costa Brava - N', 'Costa Brava - S', 'La Herradura', 'Mallorca - N', 'Mallorca - S', 'Menorca']
+            #sites = ['Ceuta', 'Costa Brava - N', 'Costa Brava - S', 'La Herradura', 'Mallorca - S', 'Menorca']
+
+            #sites = ['Costa Brava - N', 'Costa Brava - S', 'Mallorca - S']
+            #TODO OJO CON ESTA LINEA
+            #grouped_data = filtered_grouped_data
+            for zone in sites:
+                if zone == 'No Zone':
                     continue
+                print(zone)
+                data_zone = grouped_data[zone]
+                # Combine all dataframes of a single zone into a big one to calculate the mean
+                combined_df = pd.concat([d['data'] for d in data_zone])
+                combined_df = combined_df.drop(columns='date')
+                combined_df['depth(m)'] = combined_df['depth(m)'].round()
+                mean_df = combined_df.groupby(combined_df['depth(m)']).mean().reset_index()
+                i = 0
+                colors = ['red', 'blue', 'green', 'orange', 'purple', 'pink', 'cyan', 'magenta']
+                for data in data_zone:
+                    data = data['data']
+                    data['depth(m)'] = data['depth(m)'].round()
+                    data_mean = data.groupby(by='depth(m)', as_index=False)['temperature(c)'].mean()
+                    # First add nan if depth is lower than max
+                    if data_mean.empty:
+                        continue
 
-                color = colors[i % len(colors)]
-                # Nos quedamos solo con los valor de temperatura por debajo de 40 grados
-                data_mean = data_mean[data_mean['temperature(c)'] <= 40]
+                    color = colors[m]
+                    # Nos quedamos solo con los valor de temperatura por debajo de 40 grados
+                    data_mean = data_mean[data_mean['temperature(c)'] <= 40]
 
-                if data_mean['depth(m)'].iloc[-1] != dip:
-                    fdepth = data_mean['depth(m)'].iloc[-1]
+                    if data_mean['depth(m)'].iloc[-1] != dip:
+                        fdepth = data_mean['depth(m)'].iloc[-1]
+                        diff = dip - fdepth
+                        for n in range(1, int(diff) + 1, 1):
+                            new_row = pd.DataFrame({'depth(m)': [fdepth + n], 'temperature(c)': [np.nan]})
+                            data_mean = pd.concat([data_mean, new_row], ignore_index=True)
+                    # Repetir el primer valor al final para cerrar el gráfico
+                    if len(data_mean['depth(m)']) != dip:
+                        data_mean.set_index('depth(m)', inplace=True)
+
+                        # Crear un rango completo de profundidades
+                        profundidad_completa = np.arange(1, data_mean.index.max() + 1)
+
+                        # Reindexar el DataFrame para incluir todas las profundidades
+                        data_mean = data_mean.reindex(profundidad_completa).reset_index()
+                    data_mean = pd.concat([data_mean, pd.DataFrame([data_mean.iloc[0]])], ignore_index=True)
+                    if len(data_mean) < 52:
+                        print('he')
+                    ax.plot(angles, data_mean['temperature(c)'], color=color, linewidth=0.3, label='Average temperature - All dives')
+                    i += 1
+                if mean_df['depth(m)'].iloc[-1] != dip:
+                    fdepth = mean_df['depth(m)'].iloc[-1]
                     diff = dip - fdepth
                     for n in range(1, int(diff) + 1, 1):
                         new_row = pd.DataFrame({'depth(m)': [fdepth + n], 'temperature(c)': [np.nan]})
-                        data_mean = pd.concat([data_mean, new_row], ignore_index=True)
+                        mean_df = pd.concat([mean_df, new_row], ignore_index=True)
                 # Repetir el primer valor al final para cerrar el gráfico
-                if len(data_mean['depth(m)']) != dip:
-                    data_mean.set_index('depth(m)', inplace=True)
+                if len(mean_df['depth(m)']) != dip:
+                    mean_df.set_index('depth(m)', inplace=True)
 
                     # Crear un rango completo de profundidades
-                    profundidad_completa = np.arange(1, data_mean.index.max() + 1)
+                    profundidad_completa = np.arange(1, mean_df.index.max() + 1)
 
                     # Reindexar el DataFrame para incluir todas las profundidades
-                    data_mean = data_mean.reindex(profundidad_completa).reset_index()
-                data_mean = pd.concat([data_mean, pd.DataFrame([data_mean.iloc[0]])], ignore_index=True)
-                if len(data_mean) < 52:
-                    print('he')
-                ax.plot(angles, data_mean['temperature(c)'], color=color, linewidth=1,
-                        label='Average temperature - All dives')
-
-                # Rellenar el área bajo la curva
-                #ax.fill(angles, data_mean['temperature(c)'], color=color[i], alpha=0.1)
-                i += 1
+                    mean_df = mean_df.reindex(profundidad_completa).reset_index()
+                mean_df = pd.concat([mean_df, pd.DataFrame([mean_df.iloc[0]])], ignore_index=True)
+                ax.plot(angles, mean_df['temperature(c)'], color=color, linewidth=2.5, label='Mean')
+                m += 1
             # Configuración de etiquetas y leyenda
             # ax.set_yticklabels(['haha', 'hehe'])
             ax.set_xticks(angles[:-1])
             ax.set_xticklabels(labels, color='skyblue', fontsize=12)
 
-            radial_ticks = ax.get_yticks()  # Obtener los valores actuales
+            radial_ticks = ax.get_yticks()
+            radial_ticks = [0, 5, 10, 15, 20, 25, 28] # Change last tick
+            ax.set_ylim(0, 28)
             custom_labels = [f"{tick}°C" for tick in radial_ticks]  # Añadir el símbolo °C
             ax.set_yticks(radial_ticks)  # Volver a asignar los mismos ticks
             ax.set_yticklabels(custom_labels)
-
-            # ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-            plt.savefig('../radar_'+ self.output_name + '.png')
+            patches = [plt.Line2D([0], [0], color=color, lw=4) for color in colors]
+            plt.title('All periods temperature by depth')
+            ax.legend(patches, sites, title="Zonas", loc="upper right", fontsize='small', bbox_to_anchor=(1.3, 1.1))
+            plt.savefig('../radar_VCOLOR_ALL MEAN_'+ self.output_name + '_V3.png')
     # TODO add the possibility to plot multiple sites
     def radar_plot(self):
         if hasattr(self, 'data_list'):
